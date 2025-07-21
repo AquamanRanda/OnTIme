@@ -171,10 +171,31 @@ export function PresentationView({ className = '' }: PresentationViewProps) {
           </div>
         </div>
         
-        <div className={`px-4 py-2 rounded-full text-sm font-bold ${playbackStatus.color} ${
-          playbackStatus.pulse ? 'animate-pulse' : ''
-        }`}>
-          {playbackStatus.text}
+        <div className="flex items-center space-x-4">
+          <div className={`px-4 py-2 rounded-full text-sm font-bold ${playbackStatus.color} ${
+            playbackStatus.pulse ? 'animate-pulse' : ''
+          }`}>
+            {playbackStatus.text}
+          </div>
+          
+          {/* Quick Control Buttons - Only show in development */}
+          {process.env.NODE_ENV === 'development' && eventsWithStatus.length > 0 && (
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => {
+                  const firstEvent = eventsWithStatus[0];
+                  if (firstEvent) {
+                    console.log('🚀 Starting first event:', firstEvent.title);
+                    // This would need the API method to be available
+                  }
+                }}
+                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded"
+                title="Start first event for testing"
+              >
+                Start Event
+              </button>
+            </div>
+          )}
         </div>
         
         <div className="flex items-center space-x-4">

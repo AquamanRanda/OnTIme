@@ -358,6 +358,19 @@ export class OntimeAPI {
   private handleWebSocketMessage(message: WebSocketMessage): void {
     const { topic, payload } = message;
 
+    // Debug logging to see actual data structure
+    if (topic === 'poll' || topic === 'runtime') {
+      console.log('📡 WebSocket runtime data received:', {
+        topic,
+        payloadKeys: Object.keys(payload || {}),
+        playback: (payload as any)?.playback,
+        timer: (payload as any)?.timer,
+        eventNow: (payload as any)?.eventNow,
+        eventNext: (payload as any)?.eventNext,
+        selectedEventId: (payload as any)?.playback?.selectedEventId
+      });
+    }
+
     // Handle different message types
     switch (topic) {
       case 'poll':
@@ -367,14 +380,14 @@ export class OntimeAPI {
         break;
       case 'playback':
         // Playback state updates
-        console.log('Playback update:', payload);
+        console.log('🎮 Playback update:', payload);
         break;
       case 'timer':
         // Timer updates
-        console.log('Timer update:', payload);
+        console.log('⏱️ Timer update:', payload);
         break;
       default:
-        console.log('Unknown WebSocket message:', topic, payload);
+        console.log('❓ Unknown WebSocket message:', topic, payload);
     }
   }
 

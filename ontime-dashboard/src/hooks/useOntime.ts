@@ -4,7 +4,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, useMemo } from 'react';
 import { ontimeAPI } from '../lib/ontime-api';
 import { 
   OntimeEvent, 
@@ -255,13 +255,65 @@ export function useEventsWithStatus(): EventWithStatus[] {
  */
 export function useCurrentAndNextEvents() {
   const { runtimeData } = useWebSocketConnection();
+  const { data: rundown = [] } = useRundown();
   
-  return {
-    currentEvent: runtimeData?.eventNow || null,
-    nextEvent: runtimeData?.eventNext || null,
-    publicCurrentEvent: runtimeData?.publicEventNow || null,
-    publicNextEvent: runtimeData?.publicEventNext || null,
-  };
+  return useMemo(() => {
+    // Try to get from runtime data first
+    if (runtimeData?.eventNow && runtimeData?.eventNext) {
+      return {
+        currentEvent: runtimeData.eventNow,
+        nextEvent: runtimeData.eventNext,
+        publicCurrentEvent: runtimeData.publicEventNow || null,
+        publicNextEvent: runtimeData.publicEventNext || null,
+      };
+    }
+
+    // Fallback: Use selected event and rundown order
+    const selectedEventId = runtimeData?.playback?.selectedEventId;
+    if (!selectedEventId || !rundown.length) {
+      // If no event selected, use first non-skipped event
+      const firstEvent = rundown.find(event => !event.skip);
+      const firstIndex = rundown.findIndex(event => event.id === firstEvent?.id);
+      const nextEvent = firstIndex >= 0 && firstIndex < rundown.length - 1 
+        ? rundown[firstIndex + 1] 
+        : null;
+
+      return {
+        currentEvent: firstEvent || null,
+        nextEvent: nextEvent,
+        publicCurrentEvent: firstEvent || null,
+        publicNextEvent: nextEvent,
+      };
+    }
+
+    // Find current event in rundown
+    const currentIndex = rundown.findIndex(event => event.id === selectedEventId);
+    const currentEvent = currentIndex >= 0 ? rundown[currentIndex] : null;
+    
+    // Find next event (next non-skipped event after current)
+    let nextEvent = null;
+    for (let i = currentIndex + 1; i < rundown.length; i++) {
+      if (!rundown[i].skip) {
+        nextEvent = rundown[i];
+        break;
+      }
+    }
+
+    console.log('🎯 Current/Next events determined:', {
+      selectedEventId,
+      currentIndex,
+      currentEvent: currentEvent?.title,
+      nextEvent: nextEvent?.title,
+      totalEvents: rundown.length
+    });
+
+    return {
+      currentEvent,
+      nextEvent,
+      publicCurrentEvent: currentEvent,
+      publicNextEvent: nextEvent,
+    };
+  }, [runtimeData, rundown]);
 }
 
 // ========================================
