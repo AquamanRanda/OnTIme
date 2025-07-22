@@ -470,9 +470,9 @@ export function EventCard({ event, index, customFields = [] }: EventCardProps) {
                           }))}
                           className="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-400"
                           placeholder={
-                            field.type === 'text' && field.label.toLowerCase().includes('image') 
-                              ? `Enter image URL for ${field.label.toLowerCase()}...`
-                              : `Enter ${field.label.toLowerCase()}...`
+                            field.type === 'text' && field.label && field.label.toLowerCase().includes('image')
+                            ? `Enter image URL for ${field.label.toLowerCase()}...`
+                            : `Enter ${field.label?.toLowerCase() || 'value'}...`
                           }
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
@@ -543,7 +543,7 @@ export function EventCard({ event, index, customFields = [] }: EventCardProps) {
                         )}
                         
                         {/* Show image field help for text fields that might contain images */}
-                        {field.type === 'text' && (field.label.toLowerCase().includes('image') || hasImageContent) && (
+                        {field.type === 'text' && (field.label && field.label.toLowerCase().includes('image') || hasImageContent) && (
                           <div className="mt-1 text-xs text-gray-400">
                             {hasImageContent ? (
                               <span className="text-green-400">✅ Valid image URL detected</span>

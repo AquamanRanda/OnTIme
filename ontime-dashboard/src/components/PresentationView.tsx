@@ -44,6 +44,60 @@ export function PresentationView({ className = '' }: PresentationViewProps) {
     });
   }, [isConnected, runtimeData]);
 
+  // Debug logging for timer data (combined into single useEffect)
+  useEffect(() => {
+    if (runtimeData) {
+      const debugData = runtimeData as any; // Type casting for debugging
+      console.log('🎛️ Processed runtime data:', {
+        timestamp: new Date().toLocaleTimeString(),
+        dataType: typeof runtimeData,
+        keys: Object.keys(runtimeData),
+        hasTimer: !!debugData.timer,
+        timerKeys: debugData.timer ? Object.keys(debugData.timer) : [],
+        sample: JSON.stringify(runtimeData).substring(0, 300) + '...'
+      });
+    }
+  }, [runtimeData, isClient]);
+
+  // Simple WebSocket connection test
+  useEffect(() => {
+    if (isClient) {
+      console.log('🧪 WebSocket connection test started');
+      
+      const testWS = () => {
+        try {
+          const ws = new WebSocket('wss://ontime.alpha.theesports.club/ws');
+          
+          ws.onopen = () => {
+            console.log('🧪 Test WebSocket connected');
+            ws.send(JSON.stringify({ type: 'poll' }));
+            ws.send('poll');
+            ws.send(JSON.stringify({ topic: 'poll', payload: {} }));
+            
+            setTimeout(() => ws.close(), 5000); // Close after 5 seconds
+          };
+          
+          ws.onmessage = (event) => {
+            console.log('🧪 Test WS message:', {
+              raw: event.data,
+              type: typeof event.data,
+              length: event.data?.length
+            });
+          };
+          
+          ws.onclose = () => console.log('🧪 Test WebSocket closed');
+          ws.onerror = (error) => console.log('🧪 Test WebSocket error:', error);
+          
+        } catch (error) {
+          console.log('🧪 Test WebSocket failed:', error);
+        }
+      };
+      
+      // Run test once
+      setTimeout(testWS, 2000);
+    }
+  }, [isClient]);
+
   if (!isClient) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
@@ -68,10 +122,42 @@ export function PresentationView({ className = '' }: PresentationViewProps) {
     return `${sign}${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const timeRemaining = timer?.current && timer?.duration ? 
-    timer.duration - timer.current : 0;
+  // Enhanced timer calculation with multiple fallbacks
+  let timeRemaining = 0;
+  let displayTime = "0:00";
+  let timerSource = "none";
   
-  const displayTime = timeRemaining > 0 ? formatTimeDisplay(timeRemaining) : "0:00";
+  const debugData = runtimeData as any;
+  
+  // Try multiple data structure patterns
+  if (timer?.current !== undefined && timer?.duration !== undefined) {
+    // Pattern 1: Standard nested timer object
+    timeRemaining = timer.duration - timer.current;
+    timerSource = "nested-timer";
+  } else if (debugData?.current !== undefined && debugData?.duration !== undefined) {
+    // Pattern 2: Direct timer data (runtime data IS the timer)
+    timeRemaining = debugData.duration - debugData.current;
+    timerSource = "direct-timer";
+  } else if (debugData?.timer?.current !== undefined && debugData?.timer?.duration !== undefined) {
+    // Pattern 3: Alternative nested structure
+    timeRemaining = debugData.timer.duration - debugData.timer.current;
+    timerSource = "alt-nested";
+  } else if (debugData?.clock !== undefined && debugData?.expectedFinish !== undefined) {
+    // Pattern 4: Clock-based calculation
+    timeRemaining = debugData.expectedFinish - debugData.clock;
+    timerSource = "clock-based";
+  }
+  
+  displayTime = timeRemaining > 0 ? formatTimeDisplay(timeRemaining) : "0:00";
+  
+  console.log('⏱️ Timer calculation result:', { 
+    timeRemaining,
+    displayTime,
+    timerSource,
+    hasRuntimeData: !!runtimeData,
+    timerData: timer,
+    debugKeys: debugData ? Object.keys(debugData) : []
+  });
 
   // Check if a custom field value is an image URL
   const isImageUrl = (value: string): boolean => {
@@ -312,11 +398,15 @@ export function PresentationView({ className = '' }: PresentationViewProps) {
         <div className="fixed bottom-4 right-4 bg-gray-900 border border-gray-700 rounded-lg p-4 text-xs text-gray-400 max-w-sm opacity-75 hover:opacity-100 transition-opacity">
           <div className="font-bold text-white mb-2">Debug Info</div>
           <div>WS: {isConnected ? '✅ Connected' : '❌ Disconnected'}</div>
-          <div>Timer: {timer?.current || 0}ms / {timer?.duration || 0}ms</div>
+          <div>Timer Source: {timerSource}</div>
+          <div>Display Time: {displayTime}</div>
+          <div>Time Remaining: {timeRemaining}ms</div>
+          <div>Raw Timer: {timer?.current || 0} / {timer?.duration || 0}</div>
           <div>Playback: {playback?.state || 'stopped'}</div>
           <div>Current: {currentEventData?.title || 'None'}</div>
           <div>Next: {nextEventData?.title || 'None'}</div>
           <div>Custom Fields: {customFields.length}</div>
+          <div>Runtime Keys: {runtimeData ? Object.keys(runtimeData).join(', ') : 'None'}</div>
         </div>
       )}
     </div>

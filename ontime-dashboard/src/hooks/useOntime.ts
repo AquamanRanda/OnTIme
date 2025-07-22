@@ -61,15 +61,18 @@ export function useNormalizedRundown() {
 }
 
 /**
- * Hook to fetch runtime data via HTTP (fallback)
+ * Hook to fetch runtime data via WebSocket only
+ * Ontime doesn't have HTTP runtime endpoint
  */
 export function useRuntimeData() {
-  return useQuery({
-    queryKey: QUERY_KEYS.RUNTIME,
-    queryFn: () => ontimeAPI.getRuntimeData(),
-    refetchInterval: 1000, // Refetch every second as fallback
-    staleTime: 500, // Consider data stale after 500ms
-  });
+  const { runtimeData } = useWebSocketConnection();
+  
+  return {
+    data: runtimeData,
+    isLoading: !runtimeData,
+    error: null,
+    isSuccess: !!runtimeData
+  };
 }
 
 // ========================================

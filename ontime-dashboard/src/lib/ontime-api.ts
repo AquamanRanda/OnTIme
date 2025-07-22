@@ -142,11 +142,12 @@ export class OntimeAPI {
 
   /**
    * Get runtime data (current state)
-   * HTTP GET /data/runtime
+   * Since Ontime doesn't have /data/runtime, use WebSocket only
    */
   async getRuntimeData(): Promise<RuntimeData> {
-    const response = await this.httpClient.get('/data/runtime');
-    return response.data;
+    // Ontime doesn't have a traditional runtime endpoint
+    // Runtime data comes through WebSocket only
+    throw new Error('Runtime data only available through WebSocket connection');
   }
 
   /**
@@ -281,18 +282,79 @@ export class OntimeAPI {
         this.websocket = new WebSocket(this.wsUrl);
 
         this.websocket.onopen = () => {
-          console.log('Connected to Ontime WebSocket');
-          // Request initial data
+          console.log('✅ Connected to Ontime WebSocket');
+          
+          // Request multiple types of data on connection
+          this.sendWebSocketMessage('get-runtime', {}); 
+          this.sendWebSocketMessage('get-timer', {});
+          this.sendWebSocketMessage('get-playback', {});
+          this.sendWebSocketMessage('poll-runtime', {});
+          
+          // Traditional ontime polling
           this.sendWebSocketMessage('ontime-poll', {});
+          
+          // Set up periodic polling for timer updates (every 100ms for smooth timer)
+          setInterval(() => {
+            if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+              this.sendWebSocketMessage('get-runtime', {});
+              this.sendWebSocketMessage('ontime-poll', {});
+            }
+          }, 100);
+          
           resolve();
         };
 
         this.websocket.onmessage = (event) => {
           try {
-            const message: WebSocketMessage = JSON.parse(event.data);
-            this.handleWebSocketMessage(message);
+            // Log raw incoming data for debugging
+            console.log('�� Raw WebSocket data:', {
+              type: typeof event.data,
+              length: event.data?.length || 0,
+              preview: event.data?.substring(0, 100) + (event.data?.length > 100 ? '...' : '')
+            });
+
+            // Add validation for incoming message
+            if (!event.data) {
+              console.warn('⚠️ Empty WebSocket message received');
+              return;
+            }
+
+            let parsedMessage;
+            try {
+              parsedMessage = JSON.parse(event.data);
+            } catch (parseError) {
+              console.error('💥 Failed to parse WebSocket message:', parseError, 'Raw data:', event.data);
+              return;
+            }
+
+            // Validate message structure
+            if (!parsedMessage || typeof parsedMessage !== 'object') {
+              console.warn('⚠️ Invalid message structure:', parsedMessage);
+              return;
+            }
+
+            // Handle different possible message formats
+            if (parsedMessage.topic !== undefined) {
+              // Standard format: { topic: "...", payload: {...} }
+              this.handleWebSocketMessage(parsedMessage as WebSocketMessage);
+            } else if (parsedMessage.type !== undefined) {
+              // Alternative format: { type: "...", data: {...} }
+              const convertedMessage = {
+                topic: parsedMessage.type,
+                payload: parsedMessage.data || parsedMessage
+              };
+              this.handleWebSocketMessage(convertedMessage);
+            } else {
+              // Direct data without topic/type wrapper
+              const directMessage = {
+                topic: 'unknown-data',
+                payload: parsedMessage
+              };
+              console.log('📦 Direct data message:', parsedMessage);
+              this.handleWebSocketMessage(directMessage);
+            }
           } catch (error) {
-            console.error('Error parsing WebSocket message:', error);
+            console.error('💥 Error handling WebSocket message:', error, 'Event:', event);
           }
         };
 
@@ -356,38 +418,129 @@ export class OntimeAPI {
    * Handle incoming WebSocket messages
    */
   private handleWebSocketMessage(message: WebSocketMessage): void {
-    const { topic, payload } = message;
+    try {
+      // Super defensive - check if message exists at all
+      if (!message) {
+        console.warn('⚠️ Null message received');
+        return;
+      }
 
-    // Debug logging to see actual data structure
-    if (topic === 'poll' || topic === 'runtime') {
-      console.log('📡 WebSocket runtime data received:', {
-        topic,
-        payloadKeys: Object.keys(payload || {}),
-        playback: (payload as any)?.playback,
-        timer: (payload as any)?.timer,
-        eventNow: (payload as any)?.eventNow,
-        eventNext: (payload as any)?.eventNext,
-        selectedEventId: (payload as any)?.playback?.selectedEventId
+      // Extract topic and payload with extreme safety
+      let topic: string | undefined;
+      let payload: any;
+
+      try {
+        topic = message.topic;
+        payload = message.payload;
+      } catch (error) {
+        console.error('💥 Error extracting message properties:', error);
+        return;
+      }
+
+      // Ultra-safe topic validation
+      if (topic === null || topic === undefined) {
+        console.warn('⚠️ Topic is null/undefined in message:', message);
+        // Still try to process payload if it looks like timer data
+        if (payload && typeof payload === 'object') {
+          console.log('🔄 Processing message without topic:', payload);
+          try {
+            this.wsListeners.forEach(callback => callback(payload as RuntimeData));
+          } catch (callbackError) {
+            console.error('💥 Error in callback for no-topic message:', callbackError);
+          }
+        }
+        return;
+      }
+
+      // Ensure topic is a string before toLowerCase
+      if (typeof topic !== 'string') {
+        console.warn('⚠️ Topic is not a string:', typeof topic, topic);
+        topic = String(topic || ''); // Convert to string safely
+      }
+
+      // Enhanced debug logging for all messages
+      console.log('📡 WebSocket message processed:', {
+        topicType: typeof topic,
+        topicValue: topic,
+        topicLength: topic ? topic.length : 0,
+        timestamp: new Date().toLocaleTimeString(),
+        payloadKeys: payload ? Object.keys(payload) : [],
+        hasTimer: !!(payload as any)?.timer,
+        hasPlayback: !!(payload as any)?.playback,
+        hasClock: !!(payload as any)?.clock
       });
-    }
 
-    // Handle different message types
-    switch (topic) {
-      case 'poll':
-      case 'runtime':
-        // Broadcast runtime data to all listeners
-        this.wsListeners.forEach(callback => callback(payload as RuntimeData));
-        break;
-      case 'playback':
-        // Playback state updates
-        console.log('🎮 Playback update:', payload);
-        break;
-      case 'timer':
-        // Timer updates
-        console.log('⏱️ Timer update:', payload);
-        break;
-      default:
-        console.log('❓ Unknown WebSocket message:', topic, payload);
+      // Super safe toLowerCase with multiple fallbacks
+      let normalizedTopic: string;
+      try {
+        normalizedTopic = topic && typeof topic === 'string' ? topic.toLowerCase() : 'unknown';
+      } catch (lowerCaseError) {
+        console.error('💥 Error calling toLowerCase:', lowerCaseError, 'Topic:', topic);
+        normalizedTopic = 'error';
+      }
+
+      // Handle ALL message types that might contain timer data
+      const validTopics = [
+        'ontime-clock', 'clock', 'runtime', 'timer', 'playback', 'poll',
+        'get-runtime', 'get-timer', 'get-playback', 'ontime', 'ontime-poll',
+        'unknown-data', 'error'
+      ];
+
+      if (validTopics.includes(normalizedTopic)) {
+        console.log(`🎯 Processing "${normalizedTopic}" message:`, payload);
+        if (payload) {
+          try {
+            this.wsListeners.forEach(callback => {
+              try {
+                callback(payload as RuntimeData);
+              } catch (individualCallbackError) {
+                console.error('💥 Error in individual callback:', individualCallbackError);
+              }
+            });
+          } catch (callbacksError) {
+            console.error('💥 Error processing callbacks:', callbacksError);
+          }
+        }
+      } else {
+        console.log(`❓ Unknown message type "${normalizedTopic}":`, payload);
+        // Still try to broadcast unknown messages - they might contain timer data
+        if (payload && typeof payload === 'object') {
+          try {
+            this.wsListeners.forEach(callback => {
+              try {
+                callback(payload as RuntimeData);
+              } catch (unknownCallbackError) {
+                console.error('💥 Error in unknown callback:', unknownCallbackError);
+              }
+            });
+          } catch (unknownCallbacksError) {
+            console.error('💥 Error processing unknown callbacks:', unknownCallbacksError);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('💥 Critical error in handleWebSocketMessage:', error);
+      console.error('💥 Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
+      console.error('💥 Message that caused error:', message);
+      
+      // Last resort fallback: try to extract any useful data
+      try {
+        if (message && typeof message === 'object') {
+          const fallbackPayload = message.payload || message;
+          if (fallbackPayload && typeof fallbackPayload === 'object') {
+            console.log('🔄 Last resort: broadcasting raw message data');
+            this.wsListeners.forEach(callback => {
+              try {
+                callback(fallbackPayload as RuntimeData);
+              } catch (lastResortError) {
+                console.error('💥 Even last resort failed:', lastResortError);
+              }
+            });
+          }
+        }
+      } catch (finalError) {
+        console.error('💥 Final fallback also failed:', finalError);
+      }
     }
   }
 
